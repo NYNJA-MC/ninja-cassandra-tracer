@@ -27,6 +27,8 @@ import com.datastax.driver.mapping.MappingManager;
 import com.datastax.driver.mapping.annotations.Column;
 import com.datastax.driver.mapping.annotations.Table;
 import io.opentracing.Scope;
+import io.opentracing.Span;
+import io.opentracing.contrib.cassandra.nameprovider.ActiveSpanSource;
 import io.opentracing.contrib.cassandra.nameprovider.PrefixedFullQuerySpanName;
 import io.opentracing.mock.MockSpan;
 import io.opentracing.mock.MockTracer;
@@ -86,9 +88,15 @@ public class CassandraMappingTest {
   private Session createSession() {
     Cluster.Builder builder = Cluster.builder().addContactPoints("127.0.0.1").withPort(9142);
     Cluster cluster = new TracingCluster(
-        builder,
-        mockTracer,
-        PrefixedFullQuerySpanName.newBuilder().build("tested operation")
+            builder,
+            mockTracer,
+            PrefixedFullQuerySpanName.newBuilder().build("tested operation"),
+            new ActiveSpanSource() {
+              @Override
+              public Span getActiveSpan() {
+                return null;
+              }
+            }
     );
     Session session = cluster.connect();
     assertFalse(session.isClosed());
