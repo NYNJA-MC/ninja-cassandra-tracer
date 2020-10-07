@@ -20,6 +20,8 @@ import com.google.common.base.Function;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import io.opentracing.Tracer;
+import io.opentracing.contrib.cassandra.nameprovider.ActiveSpanContextSource;
+import io.opentracing.contrib.cassandra.nameprovider.ActiveSpanSource;
 import io.opentracing.contrib.cassandra.nameprovider.CustomStringSpanName;
 import io.opentracing.contrib.cassandra.nameprovider.QuerySpanNameProvider;
 import java.util.concurrent.ExecutorService;
@@ -33,23 +35,72 @@ public class TracingCluster extends Cluster {
   private final Tracer tracer;
   private final QuerySpanNameProvider querySpanNameProvider;
   private final ExecutorService executorService;
+  private final ActiveSpanSource activeSpanSource;
+  private final ActiveSpanContextSource activeSpanContextSource;
 
-  public TracingCluster(Initializer initializer, Tracer tracer) {
+  public TracingCluster(
+          Initializer initializer,
+          Tracer tracer
+  ) {
     this(initializer, tracer, CustomStringSpanName.newBuilder().build("execute"));
   }
 
-  public TracingCluster(Initializer initializer, Tracer tracer,
-      QuerySpanNameProvider querySpanNameProvider) {
-    this(initializer, tracer, querySpanNameProvider, Executors.newCachedThreadPool());
+  public TracingCluster(
+          Initializer initializer,
+          Tracer tracer,
+          QuerySpanNameProvider querySpanNameProvider
+  ) {
+    this(initializer, tracer, querySpanNameProvider, Executors.newCachedThreadPool(), ActiveSpanSource.NONE, ActiveSpanContextSource.NONE);
   }
 
-  public TracingCluster(Initializer initializer, Tracer tracer,
-      QuerySpanNameProvider querySpanNameProvider,
-      ExecutorService executorService) {
+  public TracingCluster(
+          Initializer initializer,
+          Tracer tracer,
+          ActiveSpanSource activeSpanSource
+  ) {
+    this(initializer,tracer,CustomStringSpanName.newBuilder().build("execute"), Executors.newCachedThreadPool(), activeSpanSource, ActiveSpanContextSource.NONE);
+  }
+
+  public TracingCluster(
+          Initializer initializer,
+          Tracer tracer,
+          ActiveSpanContextSource activeSpanContextSource
+  ) {
+    this(initializer, tracer, CustomStringSpanName.newBuilder().build("execute"), Executors.newCachedThreadPool(), ActiveSpanSource.NONE, activeSpanContextSource);
+  }
+
+  public TracingCluster(
+          Initializer initializer,
+          Tracer tracer,
+          QuerySpanNameProvider querySpanNameProvider,
+          ActiveSpanSource activeSpanSource
+  ) {
+    this(initializer, tracer, querySpanNameProvider, Executors.newCachedThreadPool(), activeSpanSource, ActiveSpanContextSource.NONE);
+  }
+
+  public TracingCluster(
+          Initializer initializer,
+          Tracer tracer,
+          QuerySpanNameProvider querySpanNameProvider,
+          ActiveSpanContextSource activeSpanContextSource
+  ) {
+    this(initializer, tracer, querySpanNameProvider, Executors.newCachedThreadPool(), ActiveSpanSource.NONE, activeSpanContextSource);
+  }
+
+  public TracingCluster(
+          Initializer initializer,
+          Tracer tracer,
+          QuerySpanNameProvider querySpanNameProvider,
+          ExecutorService executorService,
+          ActiveSpanSource activeSpanSource,
+          ActiveSpanContextSource activeSpanContextSource
+  ) {
     super(initializer);
     this.tracer = tracer;
     this.querySpanNameProvider = querySpanNameProvider;
     this.executorService = executorService;
+    this.activeSpanSource = activeSpanSource;
+    this.activeSpanContextSource = activeSpanContextSource;
   }
 
   /**
@@ -57,7 +108,7 @@ public class TracingCluster extends Cluster {
    */
   @Override
   public Session newSession() {
-    return new TracingSession(super.newSession(), tracer, querySpanNameProvider, executorService);
+    return new TracingSession(super.newSession(), tracer, querySpanNameProvider, executorService, activeSpanSource, activeSpanContextSource);
   }
 
   /**
@@ -97,7 +148,7 @@ public class TracingCluster extends Cluster {
           .transform(super.connectAsync(keyspace), new Function<Session, Session>() {
             @Override
             public Session apply(Session session) {
-              return new TracingSession(session, tracer, querySpanNameProvider, executorService);
+              return new TracingSession(session, tracer, querySpanNameProvider, executorService, activeSpanSource, activeSpanContextSource);
             }
           });
     } else {
@@ -105,7 +156,7 @@ public class TracingCluster extends Cluster {
           .transform(super.connectAsync(keyspace), new Function<Session, Session>() {
             @Override
             public Session apply(Session session) {
-              return new TracingSession(session, tracer, querySpanNameProvider, executorService);
+              return new TracingSession(session, tracer, querySpanNameProvider, executorService, activeSpanSource, activeSpanContextSource);
             }
           });
     }

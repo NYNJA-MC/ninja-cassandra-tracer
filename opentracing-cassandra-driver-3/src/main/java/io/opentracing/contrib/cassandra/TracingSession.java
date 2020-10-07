@@ -30,6 +30,8 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import io.opentracing.Span;
 import io.opentracing.Tracer;
+import io.opentracing.contrib.cassandra.nameprovider.ActiveSpanContextSource;
+import io.opentracing.contrib.cassandra.nameprovider.ActiveSpanSource;
 import io.opentracing.contrib.cassandra.nameprovider.CustomStringSpanName;
 import io.opentracing.contrib.cassandra.nameprovider.QuerySpanNameProvider;
 import io.opentracing.tag.BooleanTag;
@@ -63,6 +65,8 @@ public class TracingSession implements Session {
   private final Session session;
   private final Tracer tracer;
   private final QuerySpanNameProvider querySpanNameProvider;
+  private final ActiveSpanSource activeSpanSource;
+  private final ActiveSpanContextSource activeSpanContextSource;
 
   public TracingSession(Session session, Tracer tracer) {
     this(session, tracer, CustomStringSpanName.newBuilder().build("execute"));
@@ -70,15 +74,33 @@ public class TracingSession implements Session {
 
   public TracingSession(Session session, Tracer tracer,
       QuerySpanNameProvider querySpanNameProvider) {
-    this(session, tracer, querySpanNameProvider, Executors.newCachedThreadPool());
+    this(session, tracer, querySpanNameProvider, Executors.newCachedThreadPool(), ActiveSpanSource.NONE, ActiveSpanContextSource.NONE);
+  }
+
+  public TracingSession(Session session, Tracer tracer, ActiveSpanSource activeSpanSource) {
+    this(session, tracer, CustomStringSpanName.newBuilder().build("execute"), Executors.newCachedThreadPool(), activeSpanSource, ActiveSpanContextSource.NONE);
+  }
+
+  public TracingSession(Session session, Tracer tracer, ActiveSpanContextSource activeSpanContextSource) {
+    this(session, tracer, CustomStringSpanName.newBuilder().build("execute"), Executors.newCachedThreadPool(), ActiveSpanSource.NONE, activeSpanContextSource);
+  }
+
+  public TracingSession(Session session, Tracer tracer, QuerySpanNameProvider querySpanNameProvider,ActiveSpanSource activeSpanSource) {
+    this(session, tracer, querySpanNameProvider, Executors.newCachedThreadPool(), activeSpanSource, ActiveSpanContextSource.NONE);
+  }
+
+  public TracingSession(Session session, Tracer tracer, QuerySpanNameProvider querySpanNameProvider,ActiveSpanContextSource activeSpanContextSource) {
+    this(session, tracer, querySpanNameProvider, Executors.newCachedThreadPool(), ActiveSpanSource.NONE, activeSpanContextSource);
   }
 
   public TracingSession(Session session, Tracer tracer, QuerySpanNameProvider querySpanNameProvider,
-      ExecutorService executorService) {
+      ExecutorService executorService, ActiveSpanSource activeSpanSource, ActiveSpanContextSource activeSpanContextSource) {
     this.session = session;
     this.tracer = tracer;
     this.querySpanNameProvider = querySpanNameProvider;
     this.executorService = executorService;
+    this.activeSpanSource = activeSpanSource;
+    this.activeSpanContextSource = activeSpanContextSource;
   }
 
   /**
@@ -94,7 +116,7 @@ public class TracingSession implements Session {
    */
   @Override
   public Session init() {
-    return new TracingSession(session.init(), tracer, querySpanNameProvider, executorService);
+    return new TracingSession(session.init(), tracer, querySpanNameProvider, executorService, activeSpanSource, activeSpanContextSource);
   }
 
   /**
@@ -356,8 +378,19 @@ public class TracingSession implements Session {
    */
   public Span buildSpan(String query) {
     String querySpanName = querySpanNameProvider.querySpanName(query);
-    Tracer.SpanBuilder spanBuilder = tracer.buildSpan(querySpanName)
-        .withTag(Tags.SPAN_KIND.getKey(), Tags.SPAN_KIND_CLIENT);
+
+    Tracer.SpanBuilder spanBuilder = tracer
+            .buildSpan(querySpanName)
+            .withTag(Tags.SPAN_KIND.getKey(), Tags.SPAN_KIND_CLIENT)
+    ;
+
+    if (this.activeSpanSource.getActiveSpan() != null) {
+      spanBuilder = spanBuilder.asChildOf(this.activeSpanSource.getActiveSpan());
+    }
+
+    if (this.activeSpanContextSource.getActiveSpanContext() != null) {
+      spanBuilder = spanBuilder.asChildOf(this.activeSpanContextSource.getActiveSpanContext());
+    }
 
     Span span = spanBuilder.start();
 
